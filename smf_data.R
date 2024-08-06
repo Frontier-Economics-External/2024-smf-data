@@ -81,14 +81,12 @@ print.("importing")
 i <- list()
 
 ## 1.1 Import schools information ==============================================
-
 i$schools_info <- read_csv.("england_school_information.csv") %>%
   filter(ispost16 == 1) %>%     ## want to keep only those schools which have 16+ year olds
   select(urn, schname, postcode, admission=admpol)
 
 
 ## 1.2. Import establishment set ===============================================
-
 i$schools_loc <- read_csv.("establishment.csv") %>%
   select(urn, northing, easting)
 
@@ -150,11 +148,18 @@ i$next_stage <- read_csv.("updated/england_ks5-studest-he.csv") %>%
 
 
 ## 7. Post code lat / lon data =================================================
-i$lat_long <-  read_csv.("postcode_long_lat.csv") %>%
+i$post_code_lat_long <-  read_csv.("postcode_long_lat.csv") %>%
   select(
     postcode, 
-    latitude, 
-    longitude)
+    pc_latitude=latitude, 
+    pc_longitude=longitude)
+
+
+## Import constituency shape file ==============================================
+## using the latest constituencies
+constituency_shape <- st_read(file.path(config$data_dir, "PCON_DEC_2020_UK_BFC.shp"), quiet=T) %>% 
+  st_transform(crs=4326) %>% 
+  select(constituency_code=PCON20CD, constituency_name=PCON20NM)
 
 
 ## perform standard input checks ===============================================
@@ -171,14 +176,6 @@ print.("creating output data")
 d <- list()
 
 
-
-
-# want our rows to be numeric - this will introduce NAs, which have been checked below
-numeric_columns <- c("a_level_score", "progress_to_uni", "progress_to_appren",
-                     "total_pupils", "fsm_share", "attain_8_score",
-                     "idaci_decile", "index_of_multiple_deprivation_decile")
-
-
 ## CRS (Coordinate Reference System) reference, using EPSG(defunct European Petroleum Survey Group)
 ## also see https://www.ordnancesurvey.co.uk/documents/resources/guide-coordinate-systems-great-britain.pdf
 ## and https://spatialreference.org/ref/epsg/osgb-1936-british-national-grid/
@@ -188,33 +185,24 @@ numeric_columns <- c("a_level_score", "progress_to_uni", "progress_to_appren",
 
 
 ## test code to account for missing northing and easting
-d$schools <- i$schools_info %>%
+schools <- i$schools_info %>%
   left_join(i$pupils_data, by = c("urn")) %>%
   left_join(i$a_level, by = c("urn")) %>%
   left_join(i$next_stage, by = c("urn")) %>%
+  # left_join(i$eng_deprivation, by = c("postcode")) %>%
   left_join(i$schools_loc, by = c("urn")) %>%
-  left_join(i$lat_long, by = c("postcode")) %>%
-  left_join(i$eng_deprivation, by = c("postcode")) %>%
-  mutate(across(all_of(numeric_columns), ~ as.numeric(as.character(.))))
+  left_join(i$post_code_lat_long, by = c("postcode")) 
 
-
-with_easting_northing <- d$schools %>%
+## add some geometry
+with_easting_northing <- schools %>%
   filter(!is.na(easting) & !is.na(northing)) %>%
   st_as_sf(coords = c("easting", "northing"), crs = 27700) %>%
   st_transform(crs = 4326)
 
-with_long_lat <- d$schools %>%
-  filter((is.na(easting) | is.na(northing)) & !is.na(latitude) & !is.na(longitude)) %>%
-  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
-
-## combine easting/northing with latitude/longitude
-d$schools <- bind_rows(with_easting_northing, with_long_lat)
-
-
-
-
-
-
+## if no location of school is available, use the postcode location
+with_postcode_long_lat <- schools %>%
+  filter((is.na(easting) | is.na(northing)) & !is.na(pc_longitude) & !is.na(pc_latitude)) %>%
+  st_as_sf(coords = c("pc_longitude", "pc_latitude"), crs = 4326)
 
 d$display_names <- c(
   "urn"="URN",
@@ -228,15 +216,30 @@ d$display_names <- c(
   "attain_8_score"="Attain 8 score",
   "a_level_score"="A level score",
   "progress_to_uni"="Progress to Uni",
-  "progress_to_appren"="Progress to apprenticeship",
-  "idaci_decile" = "IDACI decile", 
-  "index_of_multiple_deprivation_decile" = "IMD decile"
+  "progress_to_appren"="Progress to apprenticeship"
+  # "idaci_decile" = "IDACI decile", 
+  # "index_of_multiple_deprivation_decile" = "IMD decile"
 )
 
-d$labels <- d$schools %>% 
+d$na_codes <- c(
+  "NP"="Not Provided",
+  "NEW"="New school",
+  "NE"="New school",
+  "SUPP"="Confidential",
+  "SP"="Confidential"
+)
+
+
+d$labels <- schools %>% 
   st_drop_geometry() %>% 
+  ## attain_8_score appears to be a percentage, so adding it on here
+  mutate(attain_8_score = if_else(is.na(attain_8_score) | attain_8_score=="" | attain_8_score %in% names(d$na_codes), 
+                                  attain_8_score, paste0(attain_8_score, "%"))) %>% 
   select(all_of(names(d$display_names))) %>% 
   gather(variable, value, -urn, -schname) %>% 
+  ## replace NA items with strings explaining them
+  mutate(value = if_else(is.na(value) | value=="", "NA", value),
+         value = if_else(value %in% names(d$na_codes), unname(d$na_codes[value]), value)) %>% 
   mutate(variable_name = unname(d$display_names[variable])) %>% 
   group_by(urn) %>% 
   do({x <- .
@@ -250,71 +253,98 @@ d$labels <- d$schools %>%
   mutate(html_label = purrr::map(html_label, HTML))
 
 
+a_level_score_levels <- c(
+  "A+",
+  "A",
+  "A-",
+  "B+",
+  "B",
+  "B-",
+  "C+",
+  "C",
+  "C-",
+  "D+",
+  "D",
+  "D-",
+  "E+",
+  "E",
+  "E-",
+  "x"
+)
+clean_na <- function(col) if_else(col %in% names(d$na_codes) | col=="", NA, col)
+rem_perc <- function(col) gsub("%", "", col)
+## combine geo locations and convert to numeric.
+d$schools_point <- bind_rows(with_easting_northing, with_postcode_long_lat) %>% 
+  select(-easting, -northing, -pc_longitude, -pc_latitude) %>% 
+  ## doing each column explicitly for clarity and flexibility
+  mutate(total_pupils = as.numeric(clean_na(total_pupils)),
+         fsm_share = as.numeric(rem_perc(clean_na(fsm_share))) / 100,
+         attain_8_score = as.numeric(clean_na(attain_8_score)) / 100, ## appears to be % even if not showing a % sign
+         a_level_score = factor(clean_na(a_level_score), levels=a_level_score_levels),
+         progress_to_uni = as.numeric(rem_perc(clean_na(progress_to_uni))) / 100,
+         progress_to_appren = as.numeric(rem_perc(clean_na(progress_to_appren))) / 100) %>% 
+  st_join(constituency_shape %>% select(within_code=constituency_code, within_name=constituency_name), left=F) %>% 
+  left_join(constituency_shape %>% st_drop_geometry() %>%  select(constituency_code, match_name=constituency_name), by="constituency_code") %>% 
+  ## for all matched shapes, accept the shape name
+  mutate(constituency_name = if_else(is.na(match_name), constituency_name, match_name)) %>% select(-match_name) %>% 
+  ## for all NA constituencies, match to which one it sits within
+  mutate(constituency_code = if_else(is.na(constituency_code) | constituency_code=="", 
+                                     within_code, constituency_code),
+         constituency_name = if_else(is.na(constituency_code) | constituency_code=="", 
+                                     within_name, constituency_code))
 
-## Import constituency shape file ==============================================
-shapefile_path <- "data/PCON_DEC_2020_UK_BFC.shp" ## using the latest constituencies
+check_constituency_shapes <- d$schools_point %>% 
+  st_drop_geometry() %>% 
+  left_join(constituency_shape %>% st_drop_geometry() %>% select(constituency_code, constituency_name2=constituency_name), by="constituency_code") %>% 
+  filter(is.na(constituency_name2), !is.na(constituency_code), constituency_code!="")
 
-shapefile_constituency <- st_read(shapefile_path) 
-
-print(shapefile_constituency) 
-head(shapefile_constituency) 
-plot(shapefile_constituency) 
-
-
-
-
-## Checking the NAs ===========================================================
-has_na_in_any_column <- d$schools %>%
-  map_lgl(~ any(is.na(.x)))
-
-print(has_na_in_any_column)
-
-## Checking the proportion of NAs
-schools_df <- d$schools
-
-# Check NAs for these relevant variables
-columns_to_check <- c("a_level_score", "progress_to_uni", "progress_to_appren",
-                      "latitude", "longitude", "idaci_decile", 
-                      "index_of_multiple_deprivation_decile")
-
-na_proportion <- function(x) {
-  mean(is.na(x))
+if(nrow(check_constituency_shapes)){
+  warning("There are some constituency codes in 'd$schools_point' which does not appear in 'constituency_shape'. This means that the map will be inconsistent")
 }
 
-# Calculate the proportion of NAs for each column
-na_proportions <- schools_df %>%
-  select(all_of(columns_to_check)) %>%
-  summarise(across(everything(), na_proportion))
+## add to exports
+d$constituency_shape <- constituency_shape
 
-print(na_proportions)
-
-# further check 
-na_constituency <- is.na(schools_df$constituency_name)
-na_pup <- is.na(schools_df$total_pupils)
-na_fsm <- is.na(schools_df$fsm_share)
-na_attain <- is.na(schools_df$attain_8_score)
-
-na_df <- data.frame(na_constituency, na_pup, na_fsm, na_attain)
-## all the same NAs (for the same rows of data)
-
-
-## Check whether variables are numeric or not 
-numeric_columns <- sapply(schools_df, is.numeric)
-print(numeric_columns)
-#to make numeric: admission, total_pupils, fsm_share, attain_8_score, a_level_score, progress_to_uni, progress_to_appren
-
-numeric_columns <- c("total_pupils", "fsm_share", "attain_8_score", "a_level_score", 
-                     "progress_to_uni", "progress_to_appren")
-
-# Convert to numeric
-d$schools <- d$schools %>%
-  mutate(across(all_of(numeric_columns), ~ {
-    cleaned_column <- gsub("[^0-9.-]", "", as.character(.))
-    as.numeric(cleaned_column)
-  }))
-
-
-
+## Checking the NAs ===========================================================
+## AL: the following is optionally executed by hand for any manual checks when
+##     implementing new data
+if(F){
+  has_na_in_any_column <- d$schools_point %>%
+    map_lgl(~ any(is.na(.x)))
+  
+  print(has_na_in_any_column)
+  
+  ## Checking the proportion of NAs
+  schools_df <- d$schools_point %>% 
+    st_drop_geometry()
+  
+  
+  # Check NAs for these relevant variables
+  columns_to_check <- c(
+    "constituency_name",
+    "total_pupils",
+    "fsm_share",
+    "attain_8_score",
+    "a_level_score", 
+    "progress_to_uni", 
+    "progress_to_appren"
+    # "idaci_decile", 
+    # "index_of_multiple_deprivation_decile"
+  )
+  
+  na_proportion <- function(x) {
+    mean(is.na(x))
+  }
+  
+  # Calculate the proportion of NAs for each column
+  na_prop <- schools_df %>%
+    select(all_of(columns_to_check)) %>%
+    summarise(across(everything(), na_proportion))
+  
+  missing_geo_prop <- d$schools_point %>%
+    filter(st_is_empty(geometry)) %>% 
+    nrow() / nrow(d$schools_point)
+}
 ## export ======================================================================
 print.("exporting")
 d %>% saveRDS(file.path(config$output_dir, "output.RDS"))
