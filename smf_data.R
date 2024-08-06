@@ -21,7 +21,7 @@ time_start <- Sys.time()
 
 ## project parameters ==========================================================
 config <- list(
-  output_dir=here("output", "output v01"), #sprintf("output %s", TIME_STAMP)),
+  output_dir=here("output", "output v02"), #sprintf("output %s", TIME_STAMP)),
   data_dir=here("data"),
   draw_charts=TRUE,
   refresh_cache=FALSE
@@ -49,8 +49,8 @@ for(file_path in c()){
 
 ## general functions ===========================================================
 print. <- function(str) cat(sprintf("%s\n", str))
-read_csv. <- function(data_file_name) {
-  read.csv(file.path(config$data_dir, data_file_name)) %>% 
+read_csv. <- function(data_file_name, encoding="") {
+  read.csv(file.path(config$data_dir, data_file_name), fileEncoding=encoding) %>% 
     clean_names() %>% 
     tibble()
 }
@@ -92,9 +92,9 @@ i$schools_loc <- read_csv.("establishment.csv") %>%
 
 
 ## 1.3. Import Schools Contact info ============================================
-i$schools_contact <- read_csv.("English schools list.csv") %>%   
-  select(urn, main_email, telephone_num, head_first_name, head_last_name) %>%
-  mutate(head_teacher = paste(head_first_name, head_last_name))
+i$schools_contact <- read_csv.("English schools list.csv", encoding="ISO-8859-1") %>%   
+  mutate(head_teacher = paste(head_first_name, head_last_name)) %>% 
+  select(urn, main_email, telephone_num, head_teacher)
 
 ## 2. England deprivation ======================================================
 
@@ -192,12 +192,12 @@ d <- list()
 
 ## test code to account for missing northing and easting
 schools <- i$schools_info %>%
+  left_join(i$schools_contact, by = c("urn")) %>%
   left_join(i$pupils_data, by = c("urn")) %>%
   left_join(i$a_level, by = c("urn")) %>%
   left_join(i$next_stage, by = c("urn")) %>%
   # left_join(i$eng_deprivation, by = c("postcode")) %>%
   left_join(i$schools_loc, by = c("urn")) %>%
-  # left_join(i$schools_contact, by = c("urn")) %>% 
   left_join(i$post_code_lat_long, by = c("postcode")) 
 
 ## add some geometry
@@ -214,9 +214,9 @@ with_postcode_long_lat <- schools %>%
 d$display_names <- c(
   "urn"="URN",
   "schname"="School name",
-  # "head_teacher"="Head Teacher",
-  # "main_email"="Email Address", 
-  # "telephone_num"="Contact Number", 
+  "head_teacher"="Head Teacher",
+  "main_email"="Email Address",
+  "telephone_num"="Contact Number",
   "postcode"="Postcode",
   "admission"="Admission",
   "constituency_code"="Consituency code",
