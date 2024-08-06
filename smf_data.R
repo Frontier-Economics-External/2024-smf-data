@@ -90,6 +90,12 @@ i$schools_info <- read_csv.("england_school_information.csv") %>%
 i$schools_loc <- read_csv.("establishment.csv") %>%
   select(urn, northing, easting)
 
+
+## 1.3. Import Schools Contact info ============================================
+i$schools_contact <- read_csv.("English schools list.csv") %>%   
+  select(urn, main_email, telephone_num, head_first_name, head_last_name) %>%
+  mutate(head_teacher = paste(head_first_name, head_last_name))
+
 ## 2. England deprivation ======================================================
 
 i$eng_deprivation <- read_csv.("england_imd_idaci.csv") %>% 
@@ -191,6 +197,7 @@ schools <- i$schools_info %>%
   left_join(i$next_stage, by = c("urn")) %>%
   # left_join(i$eng_deprivation, by = c("postcode")) %>%
   left_join(i$schools_loc, by = c("urn")) %>%
+  # left_join(i$schools_contact, by = c("urn")) %>% 
   left_join(i$post_code_lat_long, by = c("postcode")) 
 
 ## add some geometry
@@ -207,6 +214,9 @@ with_postcode_long_lat <- schools %>%
 d$display_names <- c(
   "urn"="URN",
   "schname"="School name",
+  # "head_teacher"="Head Teacher",
+  # "main_email"="Email Address", 
+  # "telephone_num"="Contact Number", 
   "postcode"="Postcode",
   "admission"="Admission",
   "constituency_code"="Consituency code",
@@ -225,8 +235,8 @@ d$na_codes <- c(
   "NP"="Not Provided",
   "NEW"="New school",
   "NE"="New school",
-  "SUPP"="Confidential",
-  "SP"="Confidential"
+  "SUPP"="Withheld for confidentiality",
+  "SP"="Withheld for confidentiality"
 )
 
 
@@ -239,12 +249,12 @@ d$labels <- schools %>%
   gather(variable, value, -urn, -schname) %>% 
   ## replace NA items with strings explaining them
   mutate(value = if_else(is.na(value) | value=="", "NA", value),
-         value = if_else(value %in% names(d$na_codes), unname(d$na_codes[value]), value)) %>% 
+         value = if_else(value %in% names(d$na_codes), sprintf("NA (%s)", unname(d$na_codes[value])), value)) %>% 
   mutate(variable_name = unname(d$display_names[variable])) %>% 
   group_by(urn) %>% 
   do({x <- .
     html <- paste(c(
-      sprintf("<label class='control-label'>%s</label><br><strong>URN</strong>: %s", 
+      sprintf("<div class='text-primary fw-bold' style='font-size: 1.2em;'>%s</div><br><strong>URN</strong>: %s", 
               unique(x$schname), unique(x$urn)),
       paste(sprintf("<strong>%s</strong>: %s", x$variable_name, x$value), collapse="<br>")
     ), collapse="<br>")
