@@ -280,18 +280,19 @@ d$schools_point <- bind_rows(with_easting_northing, with_postcode_long_lat) %>%
   mutate(total_pupils = as.numeric(clean_na(total_pupils)),
          fsm_share = as.numeric(rem_perc(clean_na(fsm_share))) / 100,
          attain_8_score = as.numeric(clean_na(attain_8_score)) / 100, ## appears to be % even if not showing a % sign
-         a_level_score = factor(clean_na(a_level_score), levels=a_level_score_levels),
+         a_level_score = factor(clean_na(a_level_score), levels=rev(a_level_score_levels)), ## order from least to most to match the slider order in the map
          progress_to_uni = as.numeric(rem_perc(clean_na(progress_to_uni))) / 100,
          progress_to_appren = as.numeric(rem_perc(clean_na(progress_to_appren))) / 100) %>% 
   st_join(constituency_shape %>% select(within_code=constituency_code, within_name=constituency_name), left=F) %>% 
   left_join(constituency_shape %>% st_drop_geometry() %>%  select(constituency_code, match_name=constituency_name), by="constituency_code") %>% 
   ## for all matched shapes, accept the shape name
-  mutate(constituency_name = if_else(is.na(match_name), constituency_name, match_name)) %>% select(-match_name) %>% 
+  mutate(constituency_name = if_else(is.na(match_name), constituency_name, match_name)) %>%
   ## for all NA constituencies, match to which one it sits within
   mutate(constituency_code = if_else(is.na(constituency_code) | constituency_code=="", 
                                      within_code, constituency_code),
          constituency_name = if_else(is.na(constituency_code) | constituency_code=="", 
-                                     within_name, constituency_code))
+                                     within_name, constituency_code)) %>% 
+  select(-within_code, -within_name, -match_name)
 
 check_constituency_shapes <- d$schools_point %>% 
   st_drop_geometry() %>% 
