@@ -21,7 +21,7 @@ time_start <- Sys.time()
 
 ## project parameters ==========================================================
 config <- list(
-  output_dir=here("output", "output v02"), #sprintf("output %s", TIME_STAMP)),
+  version="v02",
   data_dir=here("data"),
   draw_charts=TRUE,
   refresh_cache=FALSE
@@ -32,15 +32,16 @@ config <- list(
 
 ## setup =======================================================================
 dir.create("output", showWarnings=F) ## assumes you have this in config$output_dir
-dir.create(config$output_dir, showWarnings=F)
+output_dir <- file.path("output", config$version)
+dir.create(output_dir, showWarnings=F)
 
 ## save copy of the script being run
-file.copy(THIS, fe::fpath(config$output_dir, sprintf("_%s", basename(THIS))), overwrite=T)
+file.copy(THIS, fe::fpath(output_dir, sprintf("_%s", basename(THIS))), overwrite=T)
 ## save details of who is running it and the packages used
 data.frame(variable=names(Sys.info()), value=unname(Sys.info())) %>% 
-  write.csv(fe::fpath(config$output_dir, "_sys_info.csv"), row.names=F)
+  write.csv(fe::fpath(output_dir, "_sys_info.csv"), row.names=F)
 capture.output(sessionInfo()) %>% 
-  writeLines(fe::fpath(config$output_dir, "_session_info.csv"))
+  writeLines(fe::fpath(output_dir, "_session_info.csv"))
 
 ## check any paths specified
 for(file_path in c()){
@@ -358,7 +359,7 @@ if(F){
 }
 ## export ======================================================================
 print.("exporting")
-d %>% saveRDS(file.path(config$output_dir, "output.RDS"))
+d %>% saveRDS(file.path(output_dir, sprintf("shiny_data_%s.RDS", config$version)))
 
 
 
