@@ -437,6 +437,29 @@ d$display_desc <- c(
   "idaci_decile"="The school's decile ranking on the Income Deprivation Affecting Children Index"
 )
 
+d$notes <- c(
+  "urn"="In Scotland this is 'seed_code', in Wales it is 'school_number'",
+  "schname"="",
+  "institution_type"="Only available in England",
+  "ispost16"="Only available in England",
+  "head_teacher"="Only available in England",
+  "main_email"="Not available in Wales",
+  "telephone_num"="",
+  "postcode"="",
+  "admission"="Only available in England",
+  "constituency_code"="Given directly (with some missing) for England. For all others, membership is inferred from school location within constiuency borders GIS data",
+  "constituency_name"="",
+  "total_pupils"="",
+  "fsm_share"="Not available in Wales",
+  "attain_8_score"="Only available in England",
+  "a_level_score"="Only available in England",
+  "progress_to_uni"="Only available in England",
+  "progress_to_appren"="Only available in England",
+  "imd_decile"="Scotland provides number of students per quintile per school. We have calculated the overall school quintile by taking the median student. We then multiply this by 2 to get deciles, so note that Scotland will not have odd deciles. For Wales, a 2 decimal point decile is given. We round this up to indicate the decile it is part of.",
+  "idaci_decile"="Only available in England"
+)
+
+
 d$na_codes <- c(
   "NP"="Not Provided",
   "NEW"="New school",
@@ -508,7 +531,8 @@ d$schools_point <- bind_rows(with_easting_northing, with_postcode_long_lat) %>%
          progress_to_uni = as.numeric(rem_perc(clean_na(progress_to_uni))) / 100,
          progress_to_appren = as.numeric(rem_perc(clean_na(progress_to_appren))) / 100, 
          imd_decile = as.numeric(clean_na(imd_decile)),
-         idaci_decile = as.numeric(clean_na(idaci_decile))) %>% 
+         idaci_decile = as.numeric(clean_na(idaci_decile)),
+         admission = if_else(admission %in% c(""), NA, admission)) %>% 
   st_join(constituency_shape %>% select(within_code=constituency_code, within_name=constituency_name), left=F) %>% 
   left_join(constituency_shape %>% st_drop_geometry() %>%  select(constituency_code, match_name=constituency_name), by="constituency_code") %>% 
   ## for all matched shapes, accept the shape name
@@ -529,8 +553,13 @@ if(nrow(check_constituency_shapes)){
   warning("There are some constituency codes in 'd$schools_point' which does not appear in 'constituency_shape'. This means that the map will be inconsistent")
 }
 
-## add to exports
-d$constituency_shape <- constituency_shape
+## add to exports if needed
+# d$constituency_shape <- constituency_shape
+
+## add meta data details
+d$variable_info <- tibble(variable=names(d$display_names), display_name=unname(d$display_names)) %>% 
+  left_join(tibble(variable=names(d$display_desc), description=unname(d$display_desc)), by="variable") %>% 
+  left_join(tibble(variable=names(d$notes), notes=unname(d$notes)), by="variable")
 
 ## Checking the NAs ===========================================================
 ## AL: the following is optionally executed by hand for any manual checks when
