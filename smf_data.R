@@ -81,7 +81,7 @@ print.("importing")
 i <- list()
 
 ## 0. Post code lat / lon data =================================================
-i$post_code_lat_long <-  read_csv.("postcode_long_lat.csv") %>%
+i$post_code_lat_long <-  read_csv.("postcodes_lon_lat/postcode_long_lat.csv") %>%
   select(
     postcode, 
     pc_latitude=latitude, 
@@ -112,7 +112,8 @@ if(nrow(pc_out_of_bounds)) stop("some postcodes are not within lat/lon bounds")
 
 ## 1. Import England schools information =======================================
 ## 1.1 Import schools information ==============================================
-i$schools_info <- read_csv.("england_school_information.csv") %>%
+##TODO: can we just use schools_loc
+i$schools_info <- read_csv.("england_school_information/england_school_information.csv") %>%
   filter(minorgroup != "Independent school") %>% # remove independent schools
   filter(issecondary == 1) %>%     ## want to keep only those schools which have 16+ year olds
   select(urn, schname, postcode, admission=admpol,
@@ -120,7 +121,7 @@ i$schools_info <- read_csv.("england_school_information.csv") %>%
 
 
 ## 1.2. Import establishment set ===============================================
-i$schools_loc <- read_csv.("establishment.csv") %>%
+i$schools_loc <- read_csv.("england_school_information/establishment.csv") %>%
   filter(establishment_type_group_name != "Independent schools") %>%
   select(urn, northing, easting)
 
@@ -128,13 +129,14 @@ i$schools_loc <- read_csv.("establishment.csv") %>%
 ## 1.3. Import English Schools Contact info =====================================
 ## can filter for indep schools here too if needed but currently this is left
 ## joined onto schools_info, so they will be dropped
-i$schools_contact <- read_csv.("English schools list.csv", encoding="ISO-8859-1") %>%   
+##TODO: can we just use schools_loc
+i$schools_contact <- read_csv.("england_school_information/English schools list.csv", encoding="ISO-8859-1") %>%   
   mutate(head_teacher = paste(head_first_name, head_last_name)) %>% 
   select(urn, main_email, telephone_num, head_teacher)
 
 
 ## 2. Import England deprivation ===============================================
-i$eng_deprivation <- read_csv.("england_imd_idaci.csv") %>% 
+i$eng_deprivation <- read_csv.("england_deprivation/england_imd_idaci.csv") %>% 
   rename(imd_decile=index_of_multiple_deprivation_decile) %>% 
   distinct() # duplicates are duplicated rows, not duplicated postcodes. 
 
@@ -142,7 +144,7 @@ i$eng_deprivation <- read_csv.("england_imd_idaci.csv") %>%
 ## 3. Import Scotland data =====================================================
 
 ## 3.1. Import Scotland deprivation ============================================
-i$scot_deprivation <- file.path(config$data_dir, "data/School+level+summary+statistics+2023.xlsx") %>% 
+i$scot_deprivation <- file.path(config$data_dir, "scotland_deprivation/School+level+summary+statistics+2023.xlsx") %>% 
   readxl::read_excel(sheet = "2023 School Level Statistics", skip =1) %>%
   filter(`School Type` == "Secondary") %>% clean_names() %>% 
   select(urn = seed_code,
@@ -174,7 +176,7 @@ i$scot_deprivation <- file.path(config$data_dir, "data/School+level+summary+stat
 
 
 ## 3.2. Import Scotland contacts and long/lat ==================================
-i$scot_contact <- file.path(config$data_dir, "scot_SchoolRoll_2023.xlsx") %>% 
+i$scot_contact <- file.path(config$data_dir, "scotland_school_information/scot_SchoolRoll_2023.xlsx") %>% 
   readxl::read_excel(sheet = "Schools_Final") %>%
   filter(SchoolType == "Secondary") %>% clean_names() %>% 
   select(urn = seed_code,
@@ -187,13 +189,13 @@ i$scot_contact <- file.path(config$data_dir, "scot_SchoolRoll_2023.xlsx") %>%
          northing=grid_ref_northing)
 
 
-
 ## 4. Import Welsh data ========================================================
 
 ## 4.1. Import Schools location data ===========================================
 
 ## some items will be mapped onto the lsoa of the school, we have the postcode
 ## for the school but will need to get the lsoa
+##TODO: up to here with data path organising
 wales_pc_lsoa_map <- file.path(config$data_dir, "data/Geography look ups - match postcodes to LSOA and Local Authority.xlsx") %>% 
   readxl::read_excel(sheet="Postcode_to_LSOA_and_LA_lookup", skip =2) %>% clean_names()
 
