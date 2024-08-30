@@ -30,5 +30,10 @@ If the structure of data does not change then updating input data is relatively 
 
 If the structure of the data has changed then some amount of coding may be required. Hopefully it should just be a case of cleaning it slightly differently (different column names etc) to end up with the same structure that the code uses. 
 
+Lastly, make sure that all the info that we show on the map is correct, this should just be:
+
+1. check that the notes (`d$notes`) is still valid - this should not change unless the methodology or availability of data changes; and
+1. check that the sources markdown file is up to date and correct. You can open this in R and click the "preview" button at the top to see what your markdown will look like within the map.
+
 Once data is updated, then everything should be sourced (as above) to confirm that everything runs through from beginning to end.
 

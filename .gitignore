@@ -6,6 +6,7 @@ output
 # frontier cleanup not picked up by the default setup
 .Ruserdata
 README.html
+sources.html
 
 # auto generated from github
 # History files

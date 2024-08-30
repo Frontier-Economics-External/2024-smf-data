@@ -22,7 +22,7 @@ time_start <- Sys.time()
 
 ## project parameters ==========================================================
 config <- list(
-  version="v04",
+  version="v05",
   data_dir=here("data")
 )
 
@@ -96,54 +96,72 @@ pc_out_of_bounds <- i$post_code_lat_long %>%
   filter(pc_latitude > 90 | pc_latitude < -90 | pc_longitude > 180 | pc_longitude < -180)
 if(nrow(pc_out_of_bounds)) stop("some postcodes are not within lat/lon bounds")
 
-## only reinclude if needed
-# lsoa_2021_shapes <- st_read(file.path(config$data_dir, "lsoa_2021_shapes", "LSOA_2021_EW_BFC_V10.shp"), quiet=T) %>% 
-#   st_transform(crs=4326) %>% 
-#   select(lsoa_2021=LSOA21CD, lsoa_2021_name=LSOA21NM) %>% 
-#   st_make_valid() # this takes some time
-# 
-# ## note that there did not appear ready made mapping files on the UK gov open
-# ## geo portal (only for 2011 Census), so we do the geo matching here
-# post_code_lsoa_2021_map <- i$post_code_lat_long %>% 
-#   filter(!is.na(pc_latitude), !is.na(pc_longitude)) %>% 
-#   st_as_sf(coords = c("pc_longitude", "pc_latitude"), crs=4326) %>% 
-#   st_join(lsoa_2021_shapes %>% select(lsoa_2021), left=T) %>% 
-#   st_drop_geometry()
 
 ## 1. Import England schools information =======================================
-## 1.1 Import schools information ==============================================
-##TODO: can we just use schools_loc
-i$schools_info <- read_csv.("england_school_information/england_school_information.csv") %>%
-  filter(minorgroup != "Independent school") %>% # remove independent schools
-  filter(issecondary == 1) %>%     ## want to keep only those schools which have 16+ year olds
-  select(urn, schname, postcode, admission=admpol,
-         ispost16)
 
-
-## 1.2. Import establishment set ===============================================
-i$schools_loc <- read_csv.("england_school_information/establishment.csv") %>%
+## 1.1. Import establishment set ===============================================
+i$eng_schools <- read_csv.("england_school_information/establishment.csv", encoding="ISO-8859-1") %>%
   filter(establishment_type_group_name != "Independent schools") %>%
-  select(urn, northing, easting)
+  filter(phase_of_education_name == "Secondary") %>%
+  mutate(head_teacher = paste(head_first_name, head_last_name), 
+         ispost16 = ifelse(statutory_high_age >= 16, 1, 0)) %>%
+  select(urn, northing, easting, schname=establishment_name, 
+         postcode, school_website, telephone_num, head_teacher, 
+         admission=admissions_policy_name, ispost16)
 
-
-## 1.3. Import English Schools Contact info =====================================
-## can filter for indep schools here too if needed but currently this is left
-## joined onto schools_info, so they will be dropped
-##TODO: can we just use schools_loc
-i$schools_contact <- read_csv.("england_school_information/English schools list.csv", encoding="ISO-8859-1") %>%   
-  mutate(head_teacher = paste(head_first_name, head_last_name)) %>% 
-  select(urn, main_email, telephone_num, head_teacher)
-
-
-## 2. Import England deprivation ===============================================
+## 1.2. Import England deprivation =============================================
 i$eng_deprivation <- read_csv.("england_deprivation/england_imd_idaci.csv") %>% 
   rename(imd_decile=index_of_multiple_deprivation_decile) %>% 
   distinct() # duplicates are duplicated rows, not duplicated postcodes. 
 
 
-## 3. Import Scotland data =====================================================
+## 1.3. Number of students in English schools ==================================
+i$eng_pupils <-  read_csv.("england_pupils_info/england_ks4final.csv") %>%
+  select(
+    urn, 
+    constituency_code = pcon_code, 
+    constituency_name = pcon_name, 
+    total_pupils = totpups, 
+    fsm_share = ptfsm6cla1a, 
+    attain_8_score = att8scr_fsm6cla1a) %>% 
+  filter(!is.na(urn)) ##NA URNs are associated with aggregated local authority data
+#establishment data has total pupils and fsm share but not the other key variables
+#so this import is still needed.
 
-## 3.1. Import Scotland deprivation ============================================
+## 1.4. A Level results ========================================================
+i$eng_a_level <- read_csv.("england_pupils_info/england_ks5final.csv") %>%
+  select(
+    urn, 
+    a_level_score = tallppegrd_alev_dis) %>% 
+  filter(!is.na(urn)) ##NA URNs are associated with aggregated local authority data
+
+
+
+## 1.5. Appren/Uni =============================================================
+i$eng_next_stage <- read_csv.("england_pupils_info/england_ks5-studest-he.csv") %>%
+  select(
+    urn, 
+    progress_to_uni = all_progressed, 
+    progress_to_appren = all_appren,
+    institution_type = nftype) %>% 
+  mutate(institution_type = recode(institution_type,
+                                   "AC" = "Academy Sponsor Led",
+                                   "ACC" = "Academy Sponsor Led",
+                                   "AC1619" = "Academy Sponsor Led", 
+                                   "ACC1619" = "Academy 16-19 Converter",
+                                   "CY" = "Community School", 
+                                   "SS" = "Studio School", 
+                                   "VC" = "Voluntary Controlled School", 
+                                   "VA" = "Voluntary Aided School", 
+                                   "F1619" = "Free School - 16-19", 
+                                   "FD" = "Foundation School",
+                                   "F" = "Free School", 
+                                   "CTC" = "City Technology College")) %>%
+  filter(!is.na(urn)) ##NA URNs are associated with aggregated local authority data
+
+## 2. Import Scotland data =====================================================
+
+## 2.1. Import Scotland deprivation ============================================
 i$scot_deprivation <- file.path(config$data_dir, "scotland_deprivation/School+level+summary+statistics+2023.xlsx") %>% 
   readxl::read_excel(sheet = "2023 School Level Statistics", skip =1) %>%
   filter(`School Type` == "Secondary") %>% clean_names() %>% 
@@ -175,7 +193,7 @@ i$scot_deprivation <- file.path(config$data_dir, "scotland_deprivation/School+le
 ## checked that all NAs match to a mix of c and 0 values
 
 
-## 3.2. Import Scotland contacts and long/lat ==================================
+## 2.2. Import Scotland contacts and long/lat ==================================
 i$scot_contact <- file.path(config$data_dir, "scotland_school_information/scot_SchoolRoll_2023.xlsx") %>% 
   readxl::read_excel(sheet = "Schools_Final") %>%
   filter(SchoolType == "Secondary") %>% clean_names() %>% 
@@ -189,14 +207,13 @@ i$scot_contact <- file.path(config$data_dir, "scotland_school_information/scot_S
          northing=grid_ref_northing)
 
 
-## 4. Import Welsh data ========================================================
+## 3. Import Welsh data ========================================================
 
-## 4.1. Import Schools location data ===========================================
+## 3.1. Import Schools location data ===========================================
 
 ## some items will be mapped onto the lsoa of the school, we have the postcode
 ## for the school but will need to get the lsoa
-##TODO: up to here with data path organising
-wales_pc_lsoa_map <- file.path(config$data_dir, "data/Geography look ups - match postcodes to LSOA and Local Authority.xlsx") %>% 
+wales_pc_lsoa_map <- file.path(config$data_dir, "wales_lsoa_map/Geography look ups - match postcodes to LSOA and Local Authority.xlsx") %>% 
   readxl::read_excel(sheet="Postcode_to_LSOA_and_LA_lookup", skip =2) %>% clean_names()
 
 ## In Wales, "maintained" schools refer to schools that are funded and controlled 
@@ -205,7 +222,7 @@ wales_pc_lsoa_map <- file.path(config$data_dir, "data/Geography look ups - match
 ## "maintained" because they are maintained (financially supported) by public funds, 
 ## which come from local taxes and the Welsh Government.
 ## So this is the Welsh equivalent of removing independent schools
-wales_maint_loc <- file.path(config$data_dir, "Welsh data/address-list-schools-wales_0.xlsx") %>% 
+wales_maint_loc <- file.path(config$data_dir, "wales_school_information/address-list-schools-wales_0.xlsx") %>% 
   readxl::read_excel(sheet = "Maintained") %>% clean_names() %>%
   filter(school_type == "Secondary (ages 11-19)") %>% 
   select(urn = school_number, 
@@ -221,8 +238,8 @@ missing_lsoas <- wales_maint_loc %>%
   filter(is.na(lsoa_code))
 if(nrow(missing_lsoas)) stop("the welsh postcode to lsoa map is incomplete")
 
-## 4.2. Import Welsh deprivation ===============================================
-wales_deprivation_lsoa <- file.path(config$data_dir, "data/Welsh_wmid.xlsx") %>% 
+## 3.2. Import Welsh deprivation ===============================================
+wales_deprivation_lsoa <- file.path(config$data_dir, "wales_deprivation/Welsh_wmid.xlsx") %>% 
   readxl::read_excel(sheet = "Data", skip =3) %>% clean_names() %>%
   select(lsoa_code, 
          wimd_2019)
@@ -232,52 +249,11 @@ i$wales_deprivation <- wales_maint_loc %>%
   mutate(imd_decile = floor(wimd_2019 / 10) + 1) # i.e. it is "within" the decile
 
 
-## 5. Number of students in English schools ====================================
-i$pupils_data <-  read_csv.("updated/england_ks4final.csv") %>%
-  select(
-     urn, 
-     constituency_code = pcon_code, 
-     constituency_name = pcon_name, 
-     total_pupils = totpups, 
-     fsm_share = ptfsm6cla1a, 
-     attain_8_score = att8scr_fsm6cla1a) %>% 
-  filter(!is.na(urn)) ##NA URNs are associated with aggregated local authority data
 
-
-## 6. A Level results ==========================================================
-i$a_level <- read_csv.("updated/england_ks5final.csv") %>%
-   select(
-     urn, 
-     a_level_score = tallppegrd_alev_dis) %>% 
-  filter(!is.na(urn)) ##NA URNs are associated with aggregated local authority data
-
-
-
-## 7. Appren/Uni ===============================================================
-i$next_stage <- read_csv.("updated/england_ks5-studest-he.csv") %>%
-   select(
-    urn, 
-    progress_to_uni = all_progressed, 
-    progress_to_appren = all_appren,
-    institution_type = nftype) %>% 
-  mutate(institution_type = recode(institution_type,
-                                   "AC" = "Academy Sponsor Led",
-                                   "ACC" = "Academy Sponsor Led",
-                                   "AC1619" = "Academy Sponsor Led", 
-                                   "ACC1619" = "Academy 16-19 Converter",
-                                   "CY" = "Community School", 
-                                   "SS" = "Studio School", 
-                                   "VC" = "Voluntary Controlled School", 
-                                   "VA" = "Voluntary Aided School", 
-                                   "F1619" = "Free School - 16-19", 
-                                   "FD" = "Foundation School",
-                                   "F" = "Free School", 
-                                   "CTC" = "City Technology College")) %>%
-  filter(!is.na(urn)) ##NA URNs are associated with aggregated local authority data
 
 
 ## Import constituency shape file ==============================================
-constituency_shape <- st_read(file.path(config$data_dir, "PCON_DEC_2020_UK_BFC.shp"), quiet=T) %>% 
+constituency_shape <- st_read(file.path(config$data_dir, "constituency_shapes/PCON_DEC_2020_UK_BFC.shp"), quiet=T) %>% 
   st_transform(crs=4326) %>% 
   select(constituency_code=PCON20CD, constituency_name=PCON20NM)
 
@@ -314,15 +290,13 @@ d <- list()
 
 
 ## test code to account for missing northing and easting
-schools_england <- i$schools_info %>%
-  left_join(i$schools_contact, by = c("urn")) %>%
-  left_join(i$pupils_data, by = c("urn")) %>%
-  left_join(i$a_level, by = c("urn")) %>%
-  left_join(i$next_stage, by = c("urn")) %>%
-  left_join(i$schools_loc, by = c("urn")) %>%
+schools_england <- i$eng_schools %>%
+  left_join(i$eng_pupils, by = c("urn")) %>%
+  left_join(i$eng_a_level, by = c("urn")) %>%
+  left_join(i$eng_next_stage, by = c("urn")) %>%
   left_join(i$eng_deprivation, by = c("postcode")) %>% 
   mutate(telephone_num = as.character(telephone_num),
-         ispost16 = ispost16==1)
+         ispost16 = if_else(ispost16==1, "Yes", if_else(ispost16==0, "No", NA)))
 
 
 schools_scotland <- i$scot_deprivation %>% 
@@ -451,7 +425,7 @@ d$notes <- c(
   "admission"="Only available in England",
   "constituency_code"="Given directly (with some missing) for England. For all others, membership is inferred from school location within constiuency borders GIS data",
   "constituency_name"="",
-  "total_pupils"="",
+  "total_pupils"="", 
   "fsm_share"="Not available in Wales",
   "attain_8_score"="Only available in England",
   "a_level_score"="Only available in England",
@@ -516,8 +490,7 @@ a_level_score_levels <- c(
   "D-",
   "E+",
   "E",
-  "E-",
-  "x"
+  "E-"
 )
 
 clean_na <- function(col) if_else(col %in% names(d$na_codes) | col=="", NA, col)
@@ -603,6 +576,11 @@ if(F){
     filter(st_is_empty(geometry)) %>% 
     nrow() / nrow(d$schools_point)
 }
+
+## sources =====================================================================
+d$sources <- read_file("sources.md")
+
+
 ## export ======================================================================
 print.("exporting")
 d %>% saveRDS(file.path(output_dir, sprintf("shiny_data_%s.RDS", config$version)))
