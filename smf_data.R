@@ -22,7 +22,7 @@ time_start <- Sys.time()
 
 ## project parameters ==========================================================
 config <- list(
-  version="v05",
+  version="v06",
   data_dir=here("data")
 )
 
@@ -252,10 +252,36 @@ i$wales_deprivation <- wales_maint_loc %>%
 
 
 
-## Import constituency shape file ==============================================
+## 4.0. Import constituency shape file =========================================
 constituency_shape <- st_read(file.path(config$data_dir, "constituency_shapes/PCON_DEC_2020_UK_BFC.shp"), quiet=T) %>% 
   st_transform(crs=4326) %>% 
   select(constituency_code=PCON20CD, constituency_name=PCON20NM)
+
+
+
+
+## 5.0. Import Schools Feedback ================================================
+schools_feedback <- read_csv.("schools_feedback/sample_school_feedback.csv") 
+
+
+# convert number of hours contacted to a decile 
+quantiles <- quantile(schools_feedback$num_hours, probs = 0:10 / 10, na.rm = TRUE)
+unique_breaks <- unique(quantiles)
+
+# Create the decile column
+schools_feedback <- schools_feedback %>%
+  mutate(
+    decile = cut(num_hours,
+                 breaks = unique_breaks,
+                 labels = FALSE,  # Use FALSE to get integer codes
+                 include.lowest = TRUE)
+  ) %>%
+  mutate(
+    decile_of_hours = as.integer(decile)
+  )
+
+
+
 
 
 ## re-add if required
@@ -295,11 +321,13 @@ schools_england <- i$eng_schools %>%
   left_join(i$eng_a_level, by = c("urn")) %>%
   left_join(i$eng_next_stage, by = c("urn")) %>%
   left_join(i$eng_deprivation, by = c("postcode")) %>% 
+  left_join(schools_feedback, by = c("urn")) %>%
   mutate(telephone_num = as.character(telephone_num),
          ispost16 = if_else(ispost16==1, "Yes", if_else(ispost16==0, "No", NA)))
 
 
 schools_scotland <- i$scot_deprivation %>% 
+  left_join(schools_feedback, by = c("urn")) %>%
   left_join(i$scot_contact, by = c("urn")) %>% 
   select(urn,
          schname,
@@ -348,7 +376,9 @@ schools_wales <- i$wales_deprivation %>%
          easting = NA,
          fsm_share = NA,
          idaci_decile = NA) %>% 
-  mutate(total_pupils = as.character(total_pupils))
+  mutate(total_pupils = as.character(total_pupils)) %>%
+  left_join(schools_feedback, by = c("urn"))
+  
 
 
 schools <- bind_rows(
@@ -388,7 +418,10 @@ d$display_names <- c(
   "progress_to_uni"="Progress to Uni",
   "progress_to_appren"="Progress to apprenticeship",
   "imd_decile" = "IMD decile", 
-  "idaci_decile" = "IDACI decile"
+  "idaci_decile" = "IDACI decile", 
+  "num_employers_contacted" = "Number of employer contacts", 
+  "decile_of_hours" = "Decile of hours contacted", 
+  "year" = "Academic year"
 )
 
 d$display_desc <- c(
@@ -404,13 +437,16 @@ d$display_desc <- c(
   "constituency_code"="The code for the school's parliamentary constituency",
   "constituency_name"="The name of the parliamentary constituency",
   "total_pupils"="The total number of enrolled pupils",
-  "fsm_share"="Percentage of pupils eligible for Free School Meals",
-  "attain_8_score"="The school's average attainment score across 8 subjects",
-  "a_level_score"="The average A level score for the school",
-  "progress_to_uni"="Percentage of students progressing to university",
-  "progress_to_appren"="Percentage of students progressing to apprenticeships",
+  "fsm_share"="% of students in receipt of Free School Meals",
+  "attain_8_score"="Average Attainment 8 Score",
+  "a_level_score"="Average A level Score",
+  "progress_to_uni"="% of students progressing to university",
+  "progress_to_appren"="% of students progressing to an apprenticeship",
   "imd_decile"="The school's decile ranking on the Index of Multiple Deprivation",
-  "idaci_decile"="The school's decile ranking on the Income Deprivation Affecting Children Index"
+  "idaci_decile"="The school's decile ranking on the Income Deprivation Affecting Children Index",
+  "num_employers_contacted" = "Number of employers that have had contact with the school", 
+  "decile_of_hours" = "Decile of the number of contact hours that employers worked with the school", 
+  "year" = "Academic year"
 )
 
 d$notes <- c(
@@ -475,6 +511,13 @@ d$labels <- schools %>%
   mutate(html_label = purrr::map(html_label, HTML))
 
 
+## Turn Schools Collected Data On or Off for input
+d$show_collected_data <- TRUE # FALSE if no feedback collected
+
+those_columns <- c("year", "decile_of_hours", "num_employers_contacted", "total_pupils_updated")
+### 
+
+
 a_level_score_levels <- c(
   "A+",
   "A",
@@ -535,6 +578,7 @@ if(nrow(check_constituency_shapes)){
 d$variable_info <- tibble(variable=names(d$display_names), display_name=unname(d$display_names)) %>% 
   left_join(tibble(variable=names(d$display_desc), description=unname(d$display_desc)), by="variable") %>% 
   left_join(tibble(variable=names(d$notes), notes=unname(d$notes)), by="variable")
+
 
 ## Checking the NAs ===========================================================
 ## AL: the following is optionally executed by hand for any manual checks when
