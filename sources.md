@@ -16,7 +16,7 @@
 
 
 ### Scotland
-* **Information on schools**: TBC
+* **Information on schools**: Data from the UK government ([link](https://www.data.gov.uk/dataset/9a6f9d86-9698-4a5d-a2c8-89f3b212c52c/scottish-school-roll-and-locations)).
 * **Deprivation**: Data from Scottish government ([link](https://www.gov.scot/publications/school-level-summary-statistics)) is given at per school.
 
 
