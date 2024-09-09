@@ -7,6 +7,7 @@ Code should be opened in R studio by double clicking on the `smf_data.Rproj` fil
 ## project parameters ==========================================================
 config <- list(
   version="v04",
+  show_collected_data=FALSE,
   data_dir=here("data")
 )
 ```
@@ -15,6 +16,7 @@ Changing the version before we make any changes (from `v04` to `v05`):
 ## project parameters ==========================================================
 config <- list(
   version="v05",
+  show_collected_data=FALSE,
   data_dir=here("data")
 )
 ```
@@ -37,3 +39,6 @@ Lastly, make sure that all the info that we show on the map is correct, this sho
 
 Once data is updated, then everything should be sourced (as above) to confirm that everything runs through from beginning to end.
 
+
+# Updating SMF collected data
+Dummy data has been used to configure data points related to school engagement collected by SMF. These additional data points, and the filtering of them, can be turned on and off via the `show_collected_data`. Updating this data is the same as for other sources.

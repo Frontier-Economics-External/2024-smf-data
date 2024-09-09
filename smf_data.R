@@ -23,10 +23,10 @@ time_start <- Sys.time()
 ## project parameters ==========================================================
 config <- list(
   version="v06",
+  show_collected_data=TRUE,
+  collected_data_academic_year=2023,
   data_dir=here("data")
 )
-
-## code parameters =============================================================
 
 
 ## setup =======================================================================
@@ -261,24 +261,41 @@ constituency_shape <- st_read(file.path(config$data_dir, "constituency_shapes/PC
 
 
 ## 5.0. Import Schools Feedback ================================================
-schools_feedback <- read_csv.("schools_feedback/sample_school_feedback.csv") 
+schools_feedback_raw <- read_csv.("schools_feedback/sample_school_feedback.csv") %>% 
+  mutate(num_hours_ps = num_hours / total_pupils,
+         num_employers_contacted_ps = num_employers_contacted / total_pupils) %>% 
+  filter(year==config$collected_data_academic_year) %>% 
+  select(-year)
 
+## check that URNs exist
+schools_feedback_missing <- schools_feedback_raw %>% 
+  select(urn) %>% 
+  unique() %>% 
+  left_join(bind_rows(i$eng_schools %>% select(urn) %>% mutate(source="England"),
+                      i$scot_deprivation %>% select(urn) %>% mutate(source="Scotland"),
+                      i$wales_deprivation %>% select(urn) %>% mutate(source="Wales")), by="urn")
 
-# convert number of hours contacted to a decile 
-quantiles <- quantile(schools_feedback$num_hours, probs = 0:10 / 10, na.rm = TRUE)
-unique_breaks <- unique(quantiles)
+if(nrow(schools_feedback_missing %>% filter(is.na(source)))){
+  if(all(is.na(schools_feedback_missing$source))){
+    stop("none of the school feedback URNs matched to the set we have")
+  } else {
+    warning("some school feedback URNs did not match the set we have, see 'schools_feedback_missing'")
+  }
+}
+
 
 # Create the decile column
-schools_feedback <- schools_feedback %>%
-  mutate(
-    decile = cut(num_hours,
-                 breaks = unique_breaks,
-                 labels = FALSE,  # Use FALSE to get integer codes
-                 include.lowest = TRUE)
-  ) %>%
-  mutate(
-    decile_of_hours = as.integer(decile)
-  )
+schools_feedback <- schools_feedback_raw %>%
+  mutate(contact_hours_ps_decile = as.integer(cut(num_hours_ps,
+                                                  breaks = quantile(schools_feedback_raw$num_hours_ps, probs = 0:10 / 10, na.rm = TRUE),
+                                                  labels = FALSE,  # Use FALSE to get integer codes
+                                                  include.lowest = TRUE)),
+         contact_employers_ps_decile = as.integer(cut(num_employers_contacted_ps,
+                                                      breaks = quantile(schools_feedback_raw$num_employers_contacted_ps, probs = 0:10 / 10, na.rm = TRUE),
+                                                      labels = FALSE,  # Use FALSE to get integer codes
+                                                      include.lowest = TRUE))) %>%
+  ## final clean
+  select(urn, total_pupils, contact_hours_ps_decile, contact_employers_ps_decile)
 
 
 
@@ -320,14 +337,12 @@ schools_england <- i$eng_schools %>%
   left_join(i$eng_pupils, by = c("urn")) %>%
   left_join(i$eng_a_level, by = c("urn")) %>%
   left_join(i$eng_next_stage, by = c("urn")) %>%
-  left_join(i$eng_deprivation, by = c("postcode")) %>% 
-  left_join(schools_feedback, by = c("urn")) %>%
+  left_join(i$eng_deprivation, by = c("postcode")) %>%
   mutate(telephone_num = as.character(telephone_num),
          ispost16 = if_else(ispost16==1, "Yes", if_else(ispost16==0, "No", NA)))
 
 
 schools_scotland <- i$scot_deprivation %>% 
-  left_join(schools_feedback, by = c("urn")) %>%
   left_join(i$scot_contact, by = c("urn")) %>% 
   select(urn,
          schname,
@@ -376,17 +391,21 @@ schools_wales <- i$wales_deprivation %>%
          easting = NA,
          fsm_share = NA,
          idaci_decile = NA) %>% 
-  mutate(total_pupils = as.character(total_pupils)) %>%
-  left_join(schools_feedback, by = c("urn"))
+  mutate(total_pupils = as.character(total_pupils))
   
-
 
 schools <- bind_rows(
   schools_england %>% mutate(country="England"), 
   schools_scotland %>% mutate(country="Scotland"), 
   schools_wales %>% mutate(country="Wales")) %>% 
-  left_join(i$post_code_lat_long, by = c("postcode")) 
-
+  left_join(i$post_code_lat_long, by = c("postcode"))
+if(config$show_collected_data){
+  schools <- schools %>% 
+    left_join(schools_feedback %>% mutate(total_pupils_or=as.character(total_pupils)) %>% select(-total_pupils), by = c("urn")) %>% 
+    mutate(total_pupils = if_else(is.na(total_pupils_or), total_pupils, total_pupils_or)) %>% 
+    select(-total_pupils_or)
+}
+  
   
 ## add some geometry
 with_easting_northing <- schools %>%
@@ -398,6 +417,15 @@ with_easting_northing <- schools %>%
 with_postcode_long_lat <- schools %>%
   filter((is.na(easting) | is.na(northing)) & !is.na(pc_longitude) & !is.na(pc_latitude)) %>%
   st_as_sf(coords = c("pc_longitude", "pc_latitude"), crs = 4326)
+
+
+## display, description, notes =================================================
+add_collected_names <- function(named_vector, collected_names){
+  if(config$show_collected_data){
+    named_vector <- c(named_vector, collected_names)
+  }
+  return(named_vector)
+}
 
 d$display_names <- c(
   "urn"="URN",
@@ -418,11 +446,12 @@ d$display_names <- c(
   "progress_to_uni"="Progress to Uni",
   "progress_to_appren"="Progress to apprenticeship",
   "imd_decile" = "IMD decile", 
-  "idaci_decile" = "IDACI decile", 
-  "num_employers_contacted" = "Number of employer contacts", 
-  "decile_of_hours" = "Decile of hours contacted", 
-  "year" = "Academic year"
-)
+  "idaci_decile" = "IDACI decile") %>% 
+  add_collected_names(c(
+    "contact_hours_ps_decile" = "Hours contacted per student decile",
+    "contact_employers_ps_decile" = "Employer contacts per student decile"
+  ))
+
 
 d$display_desc <- c(
   "urn"="Unique Reference Number for the school",
@@ -443,11 +472,11 @@ d$display_desc <- c(
   "progress_to_uni"="% of students progressing to university",
   "progress_to_appren"="% of students progressing to an apprenticeship",
   "imd_decile"="The school's decile ranking on the Index of Multiple Deprivation",
-  "idaci_decile"="The school's decile ranking on the Income Deprivation Affecting Children Index",
-  "num_employers_contacted" = "Number of employers that have had contact with the school", 
-  "decile_of_hours" = "Decile of the number of contact hours that employers worked with the school", 
-  "year" = "Academic year"
-)
+  "idaci_decile"="The school's decile ranking on the Income Deprivation Affecting Children Index") %>% 
+  add_collected_names(c(
+    "contact_hours_ps_decile" = "The school's decile ranking of hours contacted per student",
+    "contact_employers_ps_decile" = "The school's decile ranking of number of employer contacts per student"
+  ))
 
 d$notes <- c(
   "urn"="In Scotland this is 'seed_code', in Wales it is 'school_number'",
@@ -468,8 +497,11 @@ d$notes <- c(
   "progress_to_uni"="Only available in England",
   "progress_to_appren"="Only available in England",
   "imd_decile"="Scotland provides number of students per quintile per school. We have calculated the overall school quintile by taking the median student. We then multiply this by 2 to get deciles, so note that Scotland will not have odd deciles. For Wales, a 2 decimal point decile is given. We round this up to indicate the decile it is part of.",
-  "idaci_decile"="Only available in England"
-)
+  "idaci_decile"="Only available in England") %>% 
+  add_collected_names(c(
+    "contact_hours_ps_decile"=sprintf("Data collected by SGN for academic year %s", config$collected_data_academic_year),
+    "contact_employers_ps_decile"=sprintf("Data collected by SGN for academic year %s", config$collected_data_academic_year)
+  ))
 
 
 d$na_codes <- c(
@@ -481,6 +513,7 @@ d$na_codes <- c(
 )
 
 
+## labels ======================================================================
 d$labels <- schools %>% 
   st_drop_geometry() %>% 
   ## attain_8_score appears to be a percentage, so adding it on here
@@ -511,13 +544,7 @@ d$labels <- schools %>%
   mutate(html_label = purrr::map(html_label, HTML))
 
 
-## Turn Schools Collected Data On or Off for input
-d$show_collected_data <- TRUE # FALSE if no feedback collected
-
-those_columns <- c("year", "decile_of_hours", "num_employers_contacted", "total_pupils_updated")
-### 
-
-
+## schools point ===============================================================
 a_level_score_levels <- c(
   "A+",
   "A",
@@ -571,58 +598,19 @@ if(nrow(check_constituency_shapes)){
   warning("There are some constituency codes in 'd$schools_point' which does not appear in 'constituency_shape'. This means that the map will be inconsistent")
 }
 
-## add to exports if needed
-# d$constituency_shape <- constituency_shape
 
-## add meta data details
+## meta data ===================================================================
 d$variable_info <- tibble(variable=names(d$display_names), display_name=unname(d$display_names)) %>% 
   left_join(tibble(variable=names(d$display_desc), description=unname(d$display_desc)), by="variable") %>% 
   left_join(tibble(variable=names(d$notes), notes=unname(d$notes)), by="variable")
 
 
-## Checking the NAs ===========================================================
-## AL: the following is optionally executed by hand for any manual checks when
-##     implementing new data
-if(F){
-  has_na_in_any_column <- d$schools_point %>%
-    map_lgl(~ any(is.na(.x)))
-  
-  print(has_na_in_any_column)
-  
-  ## Checking the proportion of NAs
-  schools_df <- d$schools_point %>% 
-    st_drop_geometry()
-  
-  
-  # Check NAs for these relevant variables
-  columns_to_check <- c(
-    "constituency_name",
-    "total_pupils",
-    "fsm_share",
-    "attain_8_score",
-    "a_level_score", 
-    "progress_to_uni", 
-    "progress_to_appren"
-    # "idaci_decile", 
-    # "index_of_multiple_deprivation_decile"
-  )
-  
-  na_proportion <- function(x) {
-    mean(is.na(x))
-  }
-  
-  # Calculate the proportion of NAs for each column
-  na_prop <- schools_df %>%
-    select(all_of(columns_to_check)) %>%
-    summarise(across(everything(), na_proportion))
-  
-  missing_geo_prop <- d$schools_point %>%
-    filter(st_is_empty(geometry)) %>% 
-    nrow() / nrow(d$schools_point)
-}
-
 ## sources =====================================================================
 d$sources <- read_file("sources.md")
+
+
+## config export ===============================================================
+d$show_collected_data <- config$show_collected_data
 
 
 ## export ======================================================================
