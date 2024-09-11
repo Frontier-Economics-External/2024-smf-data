@@ -23,7 +23,7 @@ time_start <- Sys.time()
 ## project parameters ==========================================================
 config <- list(
   version="v06",
-  show_collected_data=TRUE,
+  show_collected_data=FALSE,
   collected_data_academic_year=2023,
   data_dir=here("data")
 )
