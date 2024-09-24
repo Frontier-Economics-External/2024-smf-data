@@ -22,7 +22,7 @@ time_start <- Sys.time()
 
 ## project parameters ==========================================================
 config <- list(
-  version="v06",
+  version="v07",
   show_collected_data=FALSE,
   collected_data_academic_year=2023,
   data_dir=here("data")
@@ -104,10 +104,10 @@ i$eng_schools <- read_csv.("england_school_information/establishment.csv", encod
   filter(establishment_type_group_name != "Independent schools") %>%
   filter(phase_of_education_name == "Secondary") %>%
   mutate(head_teacher = paste(head_first_name, head_last_name), 
-         ispost16 = ifelse(statutory_high_age >= 16, 1, 0)) %>%
+         has_sixth_form = ifelse(official_sixth_form_code == 1, 1, 0)) %>%
   select(urn, northing, easting, schname=establishment_name, 
          postcode, school_website, telephone_num, head_teacher, 
-         admission=admissions_policy_name, ispost16)
+         admission=admissions_policy_name, has_sixth_form)
 
 ## 1.2. Import England deprivation =============================================
 i$eng_deprivation <- read_csv.("england_deprivation/england_imd_idaci.csv") %>% 
@@ -141,7 +141,7 @@ i$eng_a_level <- read_csv.("england_pupils_info/england_ks5final.csv") %>%
 i$eng_next_stage <- read_csv.("england_pupils_info/england_ks5-studest-he.csv") %>%
   select(
     urn, 
-    progress_to_uni = all_progressed, 
+    progress_to_uni = all_he, 
     progress_to_appren = all_appren,
     institution_type = nftype) %>% 
   mutate(institution_type = recode(institution_type,
@@ -339,7 +339,7 @@ schools_england <- i$eng_schools %>%
   left_join(i$eng_next_stage, by = c("urn")) %>%
   left_join(i$eng_deprivation, by = c("postcode")) %>%
   mutate(telephone_num = as.character(telephone_num),
-         ispost16 = if_else(ispost16==1, "Yes", if_else(ispost16==0, "No", NA)))
+         has_sixth_form = if_else(has_sixth_form==1, "Yes", if_else(has_sixth_form==0, "No", NA)))
 
 
 schools_scotland <- i$scot_deprivation %>% 
@@ -355,7 +355,7 @@ schools_scotland <- i$scot_deprivation %>%
          northing,
          easting) %>% 
   mutate(admission = NA,
-         ispost16 = NA,
+         has_sixth_form = NA,
          head_teacher = NA,
          constituency_code = NA,
          constituency_name = NA,
@@ -378,7 +378,7 @@ schools_wales <- i$wales_deprivation %>%
          imd_decile) %>% 
   mutate(main_email=NA,
          admission = NA,
-         ispost16 = NA,
+         has_sixth_form = NA,
          head_teacher = NA,
          constituency_code = NA,
          constituency_name = NA,
@@ -431,7 +431,7 @@ d$display_names <- c(
   "urn"="URN",
   "schname"="School name",
   "institution_type" = "School type",
-  "ispost16" = "Sixth form",
+  "has_sixth_form" = "Has sixth form",
   "head_teacher"="Head Teacher",
   "main_email"="Email Address",
   "telephone_num"="Contact Number",
@@ -440,11 +440,11 @@ d$display_names <- c(
   "constituency_code"="Consituency code",
   "constituency_name"="Constituency",
   "total_pupils"="Total pupils",
-  "fsm_share"="FSM share",
-  "attain_8_score"="Attain 8 score",
-  "a_level_score"="A level score",
-  "progress_to_uni"="Progress to Uni",
-  "progress_to_appren"="Progress to apprenticeship",
+  "fsm_share"="% of students in receipt of Free School Meals",
+  "attain_8_score"="Average Attainment 8 Score for FSM pupils",
+  "a_level_score"="Average A-level score",
+  "progress_to_uni"="% of students progressing to Uni",
+  "progress_to_appren"="% of students progressing to apprenticeship",
   "imd_decile" = "IMD decile", 
   "idaci_decile" = "IDACI decile") %>% 
   add_collected_names(c(
@@ -457,7 +457,7 @@ d$display_desc <- c(
   "urn"="Unique Reference Number for the school",
   "schname"="The full name of the school",
   "institution_type"="The type of institution",
-  "ispost16"="Indicates whether the school has a sixth form",
+  "has_sixth_form"="Indicates whether the school has a sixth form",
   "head_teacher"="The name of the head teacher",
   "main_email"="The main contact email for the school",
   "telephone_num"="The primary phone number for the school",
@@ -467,7 +467,7 @@ d$display_desc <- c(
   "constituency_name"="The name of the parliamentary constituency",
   "total_pupils"="The total number of enrolled pupils",
   "fsm_share"="% of students in receipt of Free School Meals",
-  "attain_8_score"="Average Attainment 8 Score",
+  "attain_8_score"="Average of a schools' FSM (students in receipt of Free School Meals) students' Attainment 8 Score (a score out of 90)",
   "a_level_score"="Average A level Score",
   "progress_to_uni"="% of students progressing to university",
   "progress_to_appren"="% of students progressing to an apprenticeship",
@@ -482,7 +482,7 @@ d$notes <- c(
   "urn"="In Scotland this is 'seed_code', in Wales it is 'school_number'",
   "schname"="",
   "institution_type"="Only available in England",
-  "ispost16"="Only available in England",
+  "has_sixth_form"="Only available in England",
   "head_teacher"="Only available in England",
   "main_email"="Not available in Wales",
   "telephone_num"="",
@@ -570,11 +570,11 @@ d$schools_point <- bind_rows(with_easting_northing, with_postcode_long_lat) %>%
   select(-easting, -northing, -pc_longitude, -pc_latitude) %>% 
   ## doing each column explicitly for clarity and flexibility
   mutate(total_pupils = as.numeric(clean_na(total_pupils)),
-         fsm_share = as.numeric(rem_perc(clean_na(fsm_share))) / 100,
-         attain_8_score = as.numeric(clean_na(attain_8_score)) / 100, ## appears to be % even if not showing a % sign
+         fsm_share = as.numeric(rem_perc(clean_na(fsm_share))),
+         attain_8_score = as.numeric(clean_na(attain_8_score)), ## appears to be % even if not showing a % sign
          a_level_score = factor(clean_na(a_level_score), levels=rev(a_level_score_levels)), ## order from least to most to match the slider order in the map
-         progress_to_uni = as.numeric(rem_perc(clean_na(progress_to_uni))) / 100,
-         progress_to_appren = as.numeric(rem_perc(clean_na(progress_to_appren))) / 100, 
+         progress_to_uni = as.numeric(rem_perc(clean_na(progress_to_uni))),
+         progress_to_appren = as.numeric(rem_perc(clean_na(progress_to_appren))), 
          imd_decile = as.numeric(clean_na(imd_decile)),
          idaci_decile = as.numeric(clean_na(idaci_decile)),
          admission = if_else(admission %in% c(""), NA, admission)) %>% 
@@ -585,8 +585,8 @@ d$schools_point <- bind_rows(with_easting_northing, with_postcode_long_lat) %>%
   ## for all NA constituencies, match to which one it sits within
   mutate(constituency_code = if_else(is.na(constituency_code) | constituency_code=="", 
                                      within_code, constituency_code),
-         constituency_name = if_else(is.na(constituency_code) | constituency_code=="", 
-                                     within_name, constituency_code)) %>% 
+         constituency_name = if_else(is.na(constituency_name) | constituency_name=="", 
+                                     within_name, constituency_name)) %>% 
   select(-within_code, -within_name, -match_name)
 
 check_constituency_shapes <- d$schools_point %>% 
