@@ -103,10 +103,10 @@ if(nrow(pc_out_of_bounds)) stop("some postcodes are not within lat/lon bounds")
 i$eng_schools <- read_csv.("england_school_information/establishment.csv", encoding="ISO-8859-1") %>%
   filter(establishment_type_group_name != "Independent schools") %>%
   filter(phase_of_education_name == "Secondary") %>%
-  mutate(head_teacher = paste(head_first_name, head_last_name), 
+  mutate(#head_teacher = paste(head_first_name, head_last_name), 
          has_sixth_form = ifelse(official_sixth_form_code == 1, 1, 0)) %>%
   select(urn, northing, easting, schname=establishment_name, 
-         postcode, school_website, telephone_num, head_teacher, 
+         postcode, school_website, #telephone_num, #head_teacher, 
          admission=admissions_policy_name, has_sixth_form)
 
 ## 1.2. Import England deprivation =============================================
@@ -201,8 +201,8 @@ i$scot_contact <- file.path(config$data_dir, "scotland_school_information/scot_S
          postcode = post_code, 
          pc_latitude = latitude, 
          pc_longitude = longitude,
-         main_email = email, 
-         telephone_num = phone,
+       #  main_email = email, 
+       #  telephone_num = phone,
          easting=grid_ref_easting, 
          northing=grid_ref_northing)
 
@@ -229,9 +229,9 @@ wales_maint_loc <- file.path(config$data_dir, "wales_school_information/address-
          schname = school_name, 
          la_name = local_authority, 
          postcode, 
-         telephone_num = phone_number,
+        # telephone_num = phone_number,
          total_pupils = pupils_see_notes) %>% 
-  mutate(telephone_num = str_replace_all(telephone_num, " ", "")) %>% 
+ # mutate(telephone_num = str_replace_all(telephone_num, " ", "")) %>% 
   left_join(wales_pc_lsoa_map %>% select(postcode=pcds, lsoa_code), by="postcode")
 
 missing_lsoas <- wales_maint_loc %>% 
@@ -338,7 +338,7 @@ schools_england <- i$eng_schools %>%
   left_join(i$eng_a_level, by = c("urn")) %>%
   left_join(i$eng_next_stage, by = c("urn")) %>%
   left_join(i$eng_deprivation, by = c("postcode")) %>%
-  mutate(telephone_num = as.character(telephone_num),
+  mutate(#telephone_num = as.character(telephone_num),
          has_sixth_form = if_else(has_sixth_form==1, "Yes", if_else(has_sixth_form==0, "No", NA)))
 
 
@@ -347,8 +347,8 @@ schools_scotland <- i$scot_deprivation %>%
   select(urn,
          schname,
          postcode,
-         main_email,
-         telephone_num,
+        # main_email,
+       #  telephone_num,
          total_pupils,
          fsm_share,
          imd_decile,
@@ -356,7 +356,7 @@ schools_scotland <- i$scot_deprivation %>%
          easting) %>% 
   mutate(admission = NA,
          has_sixth_form = NA,
-         head_teacher = NA,
+        # head_teacher = NA,
          constituency_code = NA,
          constituency_name = NA,
          attain_8_score = NA,
@@ -365,7 +365,7 @@ schools_scotland <- i$scot_deprivation %>%
          progress_to_appren = NA,
          institution_type = NA,
          idaci_decile = NA) %>% 
-  mutate(telephone_num = if_else(telephone_num=="tbc", NA, telephone_num),
+  mutate(#telephone_num = if_else(telephone_num=="tbc", NA, telephone_num),
          total_pupils = as.character(total_pupils),
          fsm_share = if_else(fsm_share=="c", NA, fsm_share))
   
@@ -373,13 +373,13 @@ schools_wales <- i$wales_deprivation %>%
   select(urn,
          schname,
          postcode,
-         telephone_num,
+        # telephone_num,
          total_pupils,
          imd_decile) %>% 
-  mutate(main_email=NA,
+  mutate(#main_email=NA,
          admission = NA,
          has_sixth_form = NA,
-         head_teacher = NA,
+       #  head_teacher = NA,
          constituency_code = NA,
          constituency_name = NA,
          attain_8_score = NA,
@@ -432,9 +432,9 @@ d$display_names <- c(
   "schname"="School name",
   "institution_type" = "School type",
   "has_sixth_form" = "Has sixth form",
-  "head_teacher"="Head Teacher",
-  "main_email"="Email Address",
-  "telephone_num"="Contact Number",
+ # "head_teacher"="Head Teacher",
+ # "main_email"="Email Address",
+ # "telephone_num"="Contact Number",
   "postcode"="Postcode",
   "admission"="Admission",
   "constituency_code"="Consituency code",
@@ -458,9 +458,9 @@ d$display_desc <- c(
   "schname"="The full name of the school",
   "institution_type"="The type of institution",
   "has_sixth_form"="Indicates whether the school has a sixth form",
-  "head_teacher"="The name of the head teacher",
-  "main_email"="The main contact email for the school",
-  "telephone_num"="The primary phone number for the school",
+#  "head_teacher"="The name of the head teacher",
+#  "main_email"="The main contact email for the school",
+#  "telephone_num"="The primary phone number for the school",
   "postcode"="The school's postal code",
   "admission"="The school's admission policy or type",
   "constituency_code"="The code for the school's parliamentary constituency",
@@ -483,9 +483,9 @@ d$notes <- c(
   "schname"="",
   "institution_type"="Only available in England",
   "has_sixth_form"="Only available in England",
-  "head_teacher"="Only available in England",
-  "main_email"="Not available in Wales",
-  "telephone_num"="",
+#  "head_teacher"="Only available in England",
+#  "main_email"="Not available in Wales",
+#  "telephone_num"="",
   "postcode"="",
   "admission"="Only available in England",
   "constituency_code"="Given directly (with some missing) for England. For all others, membership is inferred from school location within constiuency borders GIS data",
@@ -516,9 +516,6 @@ d$na_codes <- c(
 ## labels ======================================================================
 d$labels <- schools %>% 
   st_drop_geometry() %>% 
-  ## attain_8_score appears to be a percentage, so adding it on here
-  mutate(attain_8_score = if_else(is.na(attain_8_score) | attain_8_score=="" | attain_8_score %in% names(d$na_codes), 
-                                  attain_8_score, paste0(attain_8_score, "%"))) %>% 
   select(all_of(names(d$display_names))) %>% 
   gather(variable, value, -urn, -schname) %>% 
   ## replace NA items with strings explaining them
